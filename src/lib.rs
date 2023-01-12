@@ -1,17 +1,14 @@
-use geo::Polygon;
+use geo::{coord, line_string, Coordinate, Polygon};
 use hextree::h3ron::{self, H3Cell, Index};
-use std::collections::HashMap;
-use std::fs::File;
-use std::io;
-use std::io::prelude::*;
-use std::io::BufReader;
-
-use geo::coord;
-use geo::line_string;
-use geo::Coordinate;
 use num_traits::Zero;
+use std::{
+    collections::HashMap,
+    convert::TryFrom,
+    fs::File,
+    io::{self, BufRead, BufReader},
+};
 
-pub fn parse_asc(name: String) -> io::Result<HashMap<H3Cell, f64>> {
+pub fn parse_asc(name: String) -> io::Result<HashMap<H3Cell, u16>> {
     let file = File::open(name).expect("file not found!");
     let buf_reader = BufReader::new(file);
 
@@ -102,6 +99,7 @@ pub fn parse_asc(name: String) -> io::Result<HashMap<H3Cell, f64>> {
                 }
             }
             let population = population_sum / children.count() as f64;
+            let population = u16::try_from(population as u64).unwrap();
             output.insert(parent, population);
         }
     }
@@ -112,17 +110,20 @@ pub fn parse_asc(name: String) -> io::Result<HashMap<H3Cell, f64>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hextree::{compaction::EqCompactor, HexTreeMap};
+    use std::io::BufWriter;
+
     #[test]
     fn test_parse() {
         println!("cwd {:?}", std::env::current_dir());
-        let mut res1: HashMap<H3Cell, f64> = HashMap::new();
-        let mut res2: HashMap<H3Cell, f64> = HashMap::new();
-        let mut res3: HashMap<H3Cell, f64> = HashMap::new();
-        let mut res4: HashMap<H3Cell, f64> = HashMap::new();
-        let mut res5: HashMap<H3Cell, f64> = HashMap::new();
-        let mut res6: HashMap<H3Cell, f64> = HashMap::new();
-        let mut res7: HashMap<H3Cell, f64> = HashMap::new();
-        let mut res8: HashMap<H3Cell, f64> = HashMap::new();
+        let mut res1: HashMap<H3Cell, u16> = HashMap::new();
+        let mut res2: HashMap<H3Cell, u16> = HashMap::new();
+        let mut res3: HashMap<H3Cell, u16> = HashMap::new();
+        let mut res4: HashMap<H3Cell, u16> = HashMap::new();
+        let mut res5: HashMap<H3Cell, u16> = HashMap::new();
+        let mut res6: HashMap<H3Cell, u16> = HashMap::new();
+        let mut res7: HashMap<H3Cell, u16> = HashMap::new();
+        let mut res8: HashMap<H3Cell, u16> = HashMap::new();
         rayon::scope(|s| {
             s.spawn(|_| {
                 res1 =
@@ -165,7 +166,8 @@ mod tests {
                         .unwrap()
             });
         });
-        let mut popmap = HexTreeMap::new();
+        let mut popmap_not_compact: HexTreeMap<u16> = HexTreeMap::new();
+        let mut popmap_compact: HexTreeMap<u16, _> = HexTreeMap::with_compactor(EqCompactor);
         for (cell, pop) in res1
             .into_iter()
             .chain(res2)
@@ -176,10 +178,13 @@ mod tests {
             .chain(res7)
             .chain(res8)
         {
-            popmap.insert(cell, pop);
+            popmap_not_compact.insert(cell, pop);
+            popmap_compact.insert(cell, pop);
         }
 
-        let mut f = BufWriter::new(File::create("/tmp/foo.bar").unwrap());
-        serialize_into(&mut f, &popmap);
+        let mut fnc = BufWriter::new(File::create("/tmp/gpw.res8.not-compact.hexmap").unwrap());
+        let mut fc = BufWriter::new(File::create("/tmp/gpw.res8.compact.hexmap").unwrap());
+        bincode::serialize_into(&mut fnc, &popmap_not_compact).unwrap();
+        bincode::serialize_into(&mut fc, &popmap_compact).unwrap();
     }
 }
